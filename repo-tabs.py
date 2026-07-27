@@ -248,7 +248,8 @@ def open_iterm_tabs(paths, groups=None):
         # strictly after the shell's preexec retitle — immune to startup timing.
         # DISABLE_AUTO_TITLE stops later prompts from retitling again.
         name = shlex.quote(os.path.basename(p))
-        cmd = (f"export DISABLE_AUTO_TITLE=true; cd {shlex.quote(p)} && "
+        # Leading space: zsh histignorespace keeps launch lines out of history.
+        cmd = (f" export DISABLE_AUTO_TITLE=true; cd {shlex.quote(p)} && "
                f"printf '\\\\033]1;%s\\\\007' {name} && {bg_seq}{env}lazygit")
         if i:
             lines += ['tell w', 'create tab with default profile', 'end tell']
