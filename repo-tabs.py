@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 # DESC: Repo tab groups for Sourcetree and lazygit
-"""repo-tabs — switch Sourcetree's open tab set between work / personal / all.
+"""repo-tabs — open your work / personal repo groups as tabs.
 
 Usage:
-    repo-tabs work        open only active work repos
-    repo-tabs personal    open only active personal repos
-    repo-tabs all         open both groups (work first)
+    repo-tabs work        open active work repos as iTerm tabs running lazygit
+    repo-tabs personal    same for personal repos
+    repo-tabs all         both groups (work first)
+    repo-tabs st MODE     open the MODE group in Sourcetree instead
     repo-tabs focus       interactive selector: active status, groups, new repos
-    repo-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
     repo-tabs watch [MIN] fetch repos when their tab gains focus, cooldown MIN
-                          minutes (default 15); auto-started by lazy
-    repo-tabs close [SEL] close tabs opened by lazy: work|personal|all (default)
+                          minutes (default 15); auto-started by the default mode
+    repo-tabs close [SEL] close tabs this tool opened: work|personal|all (default)
                           or a repo name
 
-Rewrites ~/Library/Application Support/SourceTree/openWindowList (the file
-Sourcetree reads its open tabs from on launch), quitting Sourcetree first if
-it is running and relaunching it after. Tabs are alphabetical within group.
+The default (lazygit) mode opens one iTerm tab per repo — named, group-colored,
+themed per group (see lg-theme). `st` rewrites ~/Library/Application
+Support/SourceTree/openWindowList (the file Sourcetree reads its open tabs from
+on launch), quitting Sourcetree first if it is running and relaunching it
+after. Tabs are alphabetical within group.
 
 Repo list lives in ~/.config/repo-tabs/repos.txt (one path per line, # comments;
 seeded from the current open tabs on first run). A path containing
@@ -424,12 +426,12 @@ def main():
     if args and args[0] == "close":
         close_sessions(args[1] if len(args) > 1 else "all")
         return
-    lazy = bool(args) and args[0] == "lazy"
-    if lazy:
+    st = bool(args) and args[0] in ("st", "sourcetree")
+    if st or (args and args[0] == "lazy"):  # "lazy" kept as legacy alias of default
         args = args[1:]
     mode = args[0] if len(args) == 1 else None
-    if mode not in ("work", "personal", "all", "focus") or (lazy and mode == "focus"):
-        sys.exit("usage: repo-tabs [lazy] work|personal|all  |  repo-tabs focus|watch|close")
+    if mode not in ("work", "personal", "all", "focus") or (st and mode == "focus"):
+        sys.exit("usage: repo-tabs [st] work|personal|all  |  repo-tabs focus|watch|close")
 
     if mode == "focus":
         repos = load_config(strict=False)
@@ -450,12 +452,12 @@ def main():
     if not selected:
         sys.exit(f"no active {mode} repos in {CONFIG}")
 
-    if lazy:
+    if not st:
         ensure_watcher()
         groups = {p: "work" if p in work and mode != "personal" else "personal"
                   for p in selected}
         save_sessions(open_iterm_tabs(selected, groups))
-        print(f"lazy {mode}: " + ", ".join(os.path.basename(p) for p in selected))
+        print(f"{mode}: " + ", ".join(os.path.basename(p) for p in selected))
         return
 
     if sourcetree_running():
@@ -478,7 +480,7 @@ def main():
         time.sleep(0.5)
     else:
         sys.exit("could not relaunch Sourcetree — tabs are written, open it manually")
-    print(f"{mode}: " + ", ".join(os.path.basename(p) for p in selected))
+    print(f"st {mode}: " + ", ".join(os.path.basename(p) for p in selected))
 
 
 if __name__ == "__main__":

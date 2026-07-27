@@ -5,14 +5,14 @@ Switches Sourcetree's open tab set between `work`, `personal`, and `all` by rewr
 ## Usage
 
 ```
-repo-tabs work        open only active work repos
-repo-tabs personal    open only active personal repos
-repo-tabs all         open both groups (work first)
+repo-tabs work        open active work repos as iTerm tabs running lazygit
+repo-tabs personal    same for personal repos
+repo-tabs all         both groups (work first)
+repo-tabs st MODE     open the MODE group in Sourcetree instead
 repo-tabs focus       interactive selector: active status, groups, new repos
-repo-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
 ```
 
-`lazy` takes the same `work|personal|all` groups but opens an iTerm2 window with one tab per repo running [lazygit](https://github.com/jesseduffield/lazygit), instead of touching Sourcetree.
+The default mode opens an iTerm2 window with one tab per repo running [lazygit](https://github.com/jesseduffield/lazygit). `st` (or `sourcetree`) is the occasional-use Sourcetree launcher; `lazy` is accepted as a legacy alias of the default.
 
 `lazy` themes its tabs: each tab gets an iTerm tab-chip color by group (work cyan, personal pink — constants at the top of the script), the terminal background declared by the active theme's `# terminal-bg:` comment, and optionally a per-group lazygit theme. Group themes are set with `lg-theme work <name>` / `lg-theme personal <name>` (`default` clears one) and are overlaid per tab via `LG_CONFIG_FILE`, leaving the global config untouched.
 
