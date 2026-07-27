@@ -217,15 +217,15 @@ def open_iterm_tabs(paths):
     lines = ['tell application "iTerm2"',
              'set w to (create window with default profile)']
     for i, p in enumerate(paths):
-        # DISABLE_AUTO_TITLE stops the shell retitling the tab on each prompt
-        cmd = f"export DISABLE_AUTO_TITLE=true; cd {shlex.quote(p)} && lazygit"
+        # The printf titles the tab (OSC 1) from inside the command line itself,
+        # strictly after the shell's preexec retitle — immune to startup timing.
+        # DISABLE_AUTO_TITLE stops later prompts from retitling again.
+        name = shlex.quote(os.path.basename(p))
+        cmd = (f"export DISABLE_AUTO_TITLE=true; cd {shlex.quote(p)} && "
+               f"printf '\\\\033]1;%s\\\\007' {name} && lazygit")
         if i:
             lines += ['tell w', 'create tab with default profile', 'end tell']
-        lines.append(f'set s{i} to current session of w')
-        lines.append(f'tell s{i} to write text "{cmd}"')
-    lines.append('delay 0.5')  # let the shell's own title write land first, then override
-    for i, p in enumerate(paths):
-        lines.append(f'tell s{i} to set name to "{os.path.basename(p)}"')
+        lines.append(f'tell current session of w to write text "{cmd}"')
     lines += ['activate', 'end tell']
     subprocess.run(["osascript", "-e", "\n".join(lines)], check=True)
 
