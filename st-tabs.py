@@ -3,9 +3,10 @@
 """st-tabs — switch Sourcetree's open tab set between work / personal / all.
 
 Usage:
-    st-tabs work        open only work repos
-    st-tabs personal    open only personal repos
+    st-tabs work        open only active work repos
+    st-tabs personal    open only active personal repos
     st-tabs all         open both groups (work first)
+    st-tabs focus       interactive selector: active status, groups, new repos
 
 Rewrites ~/Library/Application Support/SourceTree/openWindowList (the file
 Sourcetree reads its open tabs from on launch), quitting Sourcetree first if
@@ -17,8 +18,13 @@ seeded from the current open tabs on first run). A path containing
 explicit tags in brackets to override or multi-tag:
 
     /Users/mert/dev/personal/agents-shared  [work personal]
+
+A repo tagged `inactive` stays in the list but is never opened. `focus` edits
+the list in a checklist UI: space toggles active, w/p toggle group tags, a
+registers a new repo path.
 """
 
+import curses
 import os
 import shutil
 import subprocess
@@ -30,6 +36,10 @@ WINDOW_LIST = os.path.expanduser(
     "~/Library/Application Support/SourceTree/openWindowList")
 CONFIG = os.path.expanduser("~/.config/st-tabs/repos.txt")
 DEFAULT_RECT = "{{54, 0}, {2506, 1415}}"
+HEADER = ("# st-tabs repo list — one path per line.\n"
+          "# Paths containing /dev/personal/ count as personal, the rest as work.\n"
+          "# Tags in brackets override: /path/to/repo  [work personal inactive]\n"
+          "# 'inactive' repos stay listed but are never opened.\n")
 
 
 def read_entries(path):
@@ -82,14 +92,16 @@ def build_plist(paths, rect):
     }
 
 
-def load_config():
+def auto_group(path):
+    return {"personal" if "/dev/personal/" in path else "work"}
+
+
+def load_config(strict=True):
     if not os.path.exists(CONFIG):
         paths = [e["path"] for e in read_entries(WINDOW_LIST)]
         os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
         with open(CONFIG, "w") as f:
-            f.write("# st-tabs repo list — one path per line.\n"
-                    "# Paths containing /dev/personal/ count as personal, the rest as work.\n"
-                    "# Override or multi-tag with brackets: /path/to/repo  [work personal]\n")
+            f.write(HEADER)
             f.write("\n".join(sorted(paths)) + "\n")
         print(f"seeded {CONFIG} from current open tabs")
     repos = []  # (path, tags)
@@ -102,17 +114,99 @@ def load_config():
             if line.endswith("]") and "[" in line:
                 line, _, tag_part = line.rpartition("[")
                 tags = set(tag_part.rstrip("]").split())
-                bad = tags - {"work", "personal"}
+                bad = tags - {"work", "personal", "inactive"}
                 if bad:
                     sys.exit(f"unknown tag(s) {sorted(bad)} in {CONFIG}")
                 line = line.strip()
-            if tags is None:
-                tags = {"personal" if "/dev/personal/" in line else "work"}
+            if not tags or not tags & {"work", "personal"}:
+                tags = (tags or set()) | auto_group(line)
             repos.append((line, tags))
     missing = [p for p, _ in repos if not os.path.isdir(p)]
-    if missing:
+    if strict and missing:
         sys.exit("not a directory (fix in %s):\n  %s" % (CONFIG, "\n  ".join(missing)))
     return repos
+
+
+def save_config(repos):
+    with open(CONFIG, "w") as f:
+        f.write(HEADER)
+        for path, tags in sorted(repos, key=lambda r: r[0]):
+            if tags == auto_group(path):
+                f.write(path + "\n")
+            else:
+                f.write(f"{path}  [{' '.join(sorted(tags))}]\n")
+
+
+def prompt(stdscr, label):
+    h, w = stdscr.getmaxyx()
+    curses.echo()
+    curses.curs_set(1)
+    stdscr.addstr(h - 1, 0, label)
+    stdscr.clrtoeol()
+    text = stdscr.getstr(h - 1, len(label), w - len(label) - 2).decode()
+    curses.noecho()
+    curses.curs_set(0)
+    return text.strip()
+
+
+def focus_ui(stdscr, repos):
+    """Checklist over repos (mutated in place). Returns True to save."""
+    curses.curs_set(0)
+    cur = top = 0
+    msg = ""
+    while True:
+        h, w = stdscr.getmaxyx()
+        rows = max(1, h - 3)
+        cur = max(0, min(cur, len(repos) - 1))
+        if cur < top:
+            top = cur
+        elif cur >= top + rows:
+            top = cur - rows + 1
+        stdscr.erase()
+        stdscr.addstr(0, 0, "space: active  w/p: group  a: add  enter: save  q: cancel"[:w - 1],
+                      curses.A_BOLD)
+        for i in range(top, min(len(repos), top + rows)):
+            path, tags = repos[i]
+            mark = " " if "inactive" in tags else "x"
+            group = ",".join(t for t in ("work", "personal") if t in tags)
+            attr = curses.A_REVERSE if i == cur else curses.A_NORMAL
+            if "inactive" in tags:
+                attr |= curses.A_DIM
+            stdscr.addstr(i - top + 1, 0, f"[{mark}] {group:14} {path}"[:w - 1], attr)
+        if msg:
+            stdscr.addstr(h - 1, 0, msg[:w - 1], curses.A_BOLD)
+        key = stdscr.getch()
+        msg = ""
+        if key in (curses.KEY_UP, ord("k")):
+            cur -= 1
+        elif key in (curses.KEY_DOWN, ord("j")):
+            cur += 1
+        elif key == ord(" ") and repos:
+            path, tags = repos[cur]
+            repos[cur] = (path, tags ^ {"inactive"})
+        elif key in (ord("w"), ord("p")) and repos:
+            tag = "work" if key == ord("w") else "personal"
+            path, tags = repos[cur]
+            new = tags ^ {tag}
+            if new & {"work", "personal"}:
+                repos[cur] = (path, new)
+            else:
+                msg = "repo needs at least one group"
+        elif key == ord("a"):
+            path = os.path.expanduser(prompt(stdscr, "path: ")).rstrip("/")
+            if not path:
+                pass
+            elif not os.path.isdir(path):
+                msg = f"not a directory: {path}"
+            elif any(p == path for p, _ in repos):
+                msg = "already listed"
+            else:
+                repos.append((path, auto_group(path)))
+                cur = len(repos) - 1
+        elif key in (10, 13, curses.KEY_ENTER):
+            return True
+        elif key in (27, ord("q")):
+            return False
 
 
 def sourcetree_running():
@@ -132,17 +226,27 @@ def quit_sourcetree():
 
 def main():
     mode = sys.argv[1] if len(sys.argv) == 2 else None
-    if mode not in ("work", "personal", "all"):
-        sys.exit("usage: st-tabs work|personal|all")
+    if mode not in ("work", "personal", "all", "focus"):
+        sys.exit("usage: st-tabs work|personal|all|focus")
 
-    repos = load_config()
+    if mode == "focus":
+        repos = load_config(strict=False)
+        if curses.wrapper(focus_ui, repos):
+            save_config(repos)
+            active = sum("inactive" not in t for _, t in repos)
+            print(f"saved: {len(repos)} repos, {active} active")
+        else:
+            print("cancelled — config unchanged")
+        return
+
+    repos = [(p, t) for p, t in load_config() if "inactive" not in t]
     by_name = lambda p: os.path.basename(p).lower()
     personal = sorted((p for p, t in repos if "personal" in t), key=by_name)
     work = sorted((p for p, t in repos if "work" in t), key=by_name)
     both = work + [p for p in personal if p not in work]
     selected = {"work": work, "personal": personal, "all": both}[mode]
     if not selected:
-        sys.exit(f"no {mode} repos in {CONFIG}")
+        sys.exit(f"no active {mode} repos in {CONFIG}")
 
     if sourcetree_running():
         quit_sourcetree()  # quitting rewrites openWindowList; edit only after

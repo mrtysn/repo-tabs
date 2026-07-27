@@ -5,9 +5,10 @@ Sourcetree ordered tab groups. Switches Sourcetree's open tab set between `work`
 ## Usage
 
 ```
-st-tabs work        open only work repos
-st-tabs personal    open only personal repos
+st-tabs work        open only active work repos
+st-tabs personal    open only active personal repos
 st-tabs all         open both groups (work first)
+st-tabs focus       interactive selector: active status, groups, new repos
 ```
 
 ## Configuration
@@ -17,6 +18,21 @@ The repo list lives in `~/.config/st-tabs/repos.txt` (one path per line, `#` com
 ```
 /path/to/repo  [work personal]
 ```
+
+A repo tagged `inactive` stays in the list but is never opened — the mechanism behind `focus`: pick the projects you're focusing on, park the rest without losing them.
+
+## Focus mode
+
+`st-tabs focus` opens a checklist over the repo list:
+
+| Key | Action |
+|---|---|
+| `↑`/`↓` or `k`/`j` | move |
+| `space` | toggle active/inactive |
+| `w` / `p` | toggle work / personal group tag |
+| `a` | register a new repo by path |
+| `enter` | save and exit |
+| `q` / `esc` | cancel, config untouched |
 
 ## License
 
