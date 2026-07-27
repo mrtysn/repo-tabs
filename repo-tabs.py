@@ -8,6 +8,8 @@ Usage:
     repo-tabs all         open both groups (work first)
     repo-tabs focus       interactive selector: active status, groups, new repos
     repo-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
+    repo-tabs watch [MIN] fetch repos when their tab gains focus, cooldown MIN
+                          minutes (default 15); auto-started by lazy
 
 Rewrites ~/Library/Application Support/SourceTree/openWindowList (the file
 Sourcetree reads its open tabs from on launch), quitting Sourcetree first if
@@ -230,6 +232,49 @@ def open_iterm_tabs(paths):
     subprocess.run(["osascript", "-e", "\n".join(lines)], check=True)
 
 
+def active_tab_name():
+    out = subprocess.run(
+        ["osascript", "-e",
+         'tell application "iTerm2" to name of current session of current window'],
+        capture_output=True, text=True)
+    if out.returncode != 0:
+        return None
+    # strip iTerm's "(job)" suffix and any activity-indicator prefix (e.g. "●")
+    return out.stdout.strip().split(" (")[0].lstrip("●○•* ")
+
+
+def watch(cooldown_min):
+    """Fetch a repo when its tab gains focus, at most once per cooldown."""
+    repos = {}
+    for p, _ in load_config(strict=False):
+        if subprocess.run(["git", "-C", p, "remote"],
+                          capture_output=True, text=True).stdout.strip():
+            repos[os.path.basename(p)] = p
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    last = None
+    while True:
+        path = repos.get(active_tab_name())
+        if path and path != last and os.path.isdir(path):
+            fetch_head = os.path.join(path, ".git", "FETCH_HEAD")
+            try:
+                age = time.time() - os.path.getmtime(fetch_head)
+            except OSError:
+                age = float("inf")  # never fetched
+            if age > cooldown_min * 60:
+                subprocess.Popen(["git", "-C", path, "fetch", "--quiet"], env=env,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        last = path
+        time.sleep(3)
+
+
+def ensure_watcher():
+    if subprocess.run(["pgrep", "-f", "repo-tabs[^ ]* watch"],
+                      capture_output=True).returncode != 0:
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "watch"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+
 def sourcetree_running():
     return subprocess.run(["pgrep", "-x", "Sourcetree"],
                           capture_output=True).returncode == 0
@@ -247,12 +292,15 @@ def quit_sourcetree():
 
 def main():
     args = sys.argv[1:]
+    if args and args[0] == "watch":
+        watch(float(args[1]) if len(args) > 1 else 15)
+        return
     lazy = bool(args) and args[0] == "lazy"
     if lazy:
         args = args[1:]
     mode = args[0] if len(args) == 1 else None
     if mode not in ("work", "personal", "all", "focus") or (lazy and mode == "focus"):
-        sys.exit("usage: repo-tabs [lazy] work|personal|all  |  repo-tabs focus")
+        sys.exit("usage: repo-tabs [lazy] work|personal|all  |  repo-tabs focus|watch")
 
     if mode == "focus":
         repos = load_config(strict=False)
@@ -274,6 +322,7 @@ def main():
         sys.exit(f"no active {mode} repos in {CONFIG}")
 
     if lazy:
+        ensure_watcher()
         open_iterm_tabs(selected)
         print(f"lazy {mode}: " + ", ".join(os.path.basename(p) for p in selected))
         return
