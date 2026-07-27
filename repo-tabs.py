@@ -279,28 +279,32 @@ def close_sessions(target):
     if not victims:
         sys.exit(f"no tracked sessions match {target!r} in {SESSIONS}")
     live = victims & existing_session_ids()
-    if live:
-        id_list = ", ".join(f'"{s}"' for s in sorted(live))
-        # collect matches first, close after — closing mid-iteration breaks AppleScript
-        subprocess.run(["osascript", "-e", f'''
+    closed = 0
+    # One atomic find-by-id-and-close per osascript run. AppleScript references
+    # are positional, so a close invalidates every other collected reference —
+    # batch-closing them kills unrelated sessions. Never close outside the
+    # id-match branch.
+    for sid in sorted(live):
+        r = subprocess.run(["osascript", "-e", f'''
 tell application "iTerm2"
-  set victims to {{}}
   repeat with w in windows
     repeat with t in tabs of w
       repeat with s in sessions of t
-        if {{{id_list}}} contains (id of s) then set end of victims to s
+        if id of s is "{sid}" then
+          close s
+          return "closed"
+        end if
       end repeat
     end repeat
   end repeat
-  repeat with s in victims
-    close s
-  end repeat
-end tell'''], check=True, capture_output=True)
+end tell
+return "missing"'''], capture_output=True, text=True)
+        closed += r.stdout.strip() == "closed"
     for sid in victims:
         data.pop(sid, None)
     with open(SESSIONS, "w") as f:
         json.dump(data, f, indent=1)
-    print(f"closed {len(live)} session(s), {len(victims) - len(live)} already gone")
+    print(f"closed {closed} session(s), {len(victims) - closed} already gone")
 
 
 def active_tab_name():
