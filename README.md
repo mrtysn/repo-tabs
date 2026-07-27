@@ -9,7 +9,10 @@ st-tabs work        open only active work repos
 st-tabs personal    open only active personal repos
 st-tabs all         open both groups (work first)
 st-tabs focus       interactive selector: active status, groups, new repos
+st-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
 ```
+
+`lazy` takes the same `work|personal|all` groups but opens an iTerm2 window with one tab per repo running [lazygit](https://github.com/jesseduffield/lazygit), instead of touching Sourcetree.
 
 ## Configuration
 

@@ -7,6 +7,7 @@ Usage:
     st-tabs personal    open only active personal repos
     st-tabs all         open both groups (work first)
     st-tabs focus       interactive selector: active status, groups, new repos
+    st-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
 
 Rewrites ~/Library/Application Support/SourceTree/openWindowList (the file
 Sourcetree reads its open tabs from on launch), quitting Sourcetree first if
@@ -26,6 +27,7 @@ registers a new repo path.
 
 import curses
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -209,6 +211,22 @@ def focus_ui(stdscr, repos):
             return False
 
 
+def open_iterm_tabs(paths):
+    """One iTerm window, one tab per repo, each running lazygit."""
+    lines = ['tell application "iTerm2"',
+             'set w to (create window with default profile)']
+    for i, p in enumerate(paths):
+        cmd = f"cd {shlex.quote(p)} && lazygit"
+        if i == 0:
+            lines.append(f'tell current session of w to write text "{cmd}"')
+        else:
+            lines += ['tell w', 'create tab with default profile',
+                      f'tell current session of w to write text "{cmd}"',
+                      'end tell']
+    lines += ['activate', 'end tell']
+    subprocess.run(["osascript", "-e", "\n".join(lines)], check=True)
+
+
 def sourcetree_running():
     return subprocess.run(["pgrep", "-x", "Sourcetree"],
                           capture_output=True).returncode == 0
@@ -225,9 +243,13 @@ def quit_sourcetree():
 
 
 def main():
-    mode = sys.argv[1] if len(sys.argv) == 2 else None
-    if mode not in ("work", "personal", "all", "focus"):
-        sys.exit("usage: st-tabs work|personal|all|focus")
+    args = sys.argv[1:]
+    lazy = bool(args) and args[0] == "lazy"
+    if lazy:
+        args = args[1:]
+    mode = args[0] if len(args) == 1 else None
+    if mode not in ("work", "personal", "all", "focus") or (lazy and mode == "focus"):
+        sys.exit("usage: st-tabs [lazy] work|personal|all  |  st-tabs focus")
 
     if mode == "focus":
         repos = load_config(strict=False)
@@ -247,6 +269,11 @@ def main():
     selected = {"work": work, "personal": personal, "all": both}[mode]
     if not selected:
         sys.exit(f"no active {mode} repos in {CONFIG}")
+
+    if lazy:
+        open_iterm_tabs(selected)
+        print(f"lazy {mode}: " + ", ".join(os.path.basename(p) for p in selected))
+        return
 
     if sourcetree_running():
         quit_sourcetree()  # quitting rewrites openWindowList; edit only after
