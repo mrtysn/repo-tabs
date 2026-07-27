@@ -43,6 +43,8 @@ WINDOW_LIST = os.path.expanduser(
     "~/Library/Application Support/SourceTree/openWindowList")
 CONFIG = os.path.expanduser("~/.config/repo-tabs/repos.txt")
 SESSIONS = os.path.expanduser("~/.config/repo-tabs/sessions.json")
+LAZYGIT_CONFIG = os.path.expanduser(
+    "~/Library/Application Support/lazygit/config.yml")
 DEFAULT_RECT = "{{54, 0}, {2506, 1415}}"
 HEADER = ("# repo-tabs repo list — one path per line.\n"
           "# Paths containing /dev/personal/ count as personal, the rest as work.\n"
@@ -222,6 +224,8 @@ def open_iterm_tabs(paths):
     """One iTerm window, one tab per repo named after it, each running lazygit.
 
     Returns [(session_id, path), ...] for the tabs it created."""
+    bg = terminal_bg()
+    bg_seq = f"printf '\\\\033]11;%s\\\\007' {shlex.quote(bg)} && " if bg else ""
     lines = ['tell application "iTerm2"', 'set ids to {}',
              'set w to (create window with default profile)']
     for i, p in enumerate(paths):
@@ -230,7 +234,7 @@ def open_iterm_tabs(paths):
         # DISABLE_AUTO_TITLE stops later prompts from retitling again.
         name = shlex.quote(os.path.basename(p))
         cmd = (f"export DISABLE_AUTO_TITLE=true; cd {shlex.quote(p)} && "
-               f"printf '\\\\033]1;%s\\\\007' {name} && lazygit")
+               f"printf '\\\\033]1;%s\\\\007' {name} && {bg_seq}lazygit")
         if i:
             lines += ['tell w', 'create tab with default profile', 'end tell']
         lines.append(f'tell current session of w to write text "{cmd}"')
@@ -240,6 +244,18 @@ def open_iterm_tabs(paths):
                          check=True, capture_output=True, text=True)
     ids = [t.strip() for t in out.stdout.strip().split(",") if t.strip()]
     return list(zip(ids, paths)) if len(ids) == len(paths) else []
+
+
+def terminal_bg():
+    """Background hex the active lazygit theme declares, if any (set by lg-theme)."""
+    try:
+        with open(LAZYGIT_CONFIG) as f:
+            for line in f:
+                if line.startswith("# terminal-bg:"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return None
 
 
 def existing_session_ids():
