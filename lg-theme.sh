@@ -14,6 +14,8 @@ current() {
   awk -v m="$MARK" '$0 == m {getline; sub(/^# theme: /, ""); print; exit}' "$CONF"
 }
 
+GROUPS_DIR="$HOME/.config/repo-tabs"
+
 if [[ $# -eq 0 ]]; then
   cur=$(current || true)
   echo "themes (drop more .yml files into $THEMES):"
@@ -22,7 +24,29 @@ if [[ $# -eq 0 ]]; then
     [[ "$b" == "$cur" ]] && echo "  * $b" || echo "    $b"
   done
   [[ -n "$cur" ]] || echo "  (currently: lazygit default)"
-  echo "usage: lg-theme <name> | default    (relaunch lazygit to apply)"
+  for g in work personal; do
+    [[ -f "$GROUPS_DIR/theme-$g" ]] && echo "  $g tabs: $(cat "$GROUPS_DIR/theme-$g")"
+  done
+  echo "usage: lg-theme <name>|default            global theme (relaunch to apply)"
+  echo "       lg-theme work|personal <name>|default   group override for repo-tabs lazy"
+  exit 0
+fi
+
+if [[ "$1" == work || "$1" == personal ]]; then
+  group=$1 name=${2:-}
+  if [[ -z "$name" ]]; then
+    echo "usage: lg-theme $group <name>|default" >&2
+    exit 1
+  fi
+  mkdir -p "$GROUPS_DIR"
+  if [[ "$name" == default ]]; then
+    rm -f "$GROUPS_DIR/theme-$group"
+    echo "$group tabs: global theme — takes effect on next repo-tabs lazy"
+  else
+    [[ -f "$THEMES/$name.yml" ]] || { echo "no theme '$name' in $THEMES" >&2; exit 1; }
+    echo "$name" > "$GROUPS_DIR/theme-$group"
+    echo "$group tabs: $name — takes effect on next repo-tabs lazy"
+  fi
   exit 0
 fi
 

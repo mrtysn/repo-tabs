@@ -45,6 +45,9 @@ CONFIG = os.path.expanduser("~/.config/repo-tabs/repos.txt")
 SESSIONS = os.path.expanduser("~/.config/repo-tabs/sessions.json")
 LAZYGIT_CONFIG = os.path.expanduser(
     "~/Library/Application Support/lazygit/config.yml")
+LAZYGIT_THEMES = os.path.expanduser("~/Library/Application Support/lazygit/themes")
+WORK_TAB_COLOR = "#34d3fb"      # iTerm tab chip per group, lazy mode only
+PERSONAL_TAB_COLOR = "#f92aad"
 DEFAULT_RECT = "{{54, 0}, {2506, 1415}}"
 HEADER = ("# repo-tabs repo list — one path per line.\n"
           "# Paths containing /dev/personal/ count as personal, the rest as work.\n"
@@ -220,21 +223,44 @@ def focus_ui(stdscr, repos):
             return False
 
 
-def open_iterm_tabs(paths):
+def tab_color_seq(hexcol):
+    """iTerm OSC 6 escapes (as an AppleScript-quoted printf) for the tab chip."""
+    r, g, b = (int(hexcol[i:i + 2], 16) for i in (1, 3, 5))
+    osc = "".join(f"\\\\033]6;1;bg;{c};brightness;{v}\\\\007"
+                  for c, v in (("red", r), ("green", g), ("blue", b)))
+    return f"printf '{osc}' && "
+
+
+def open_iterm_tabs(paths, groups=None):
     """One iTerm window, one tab per repo named after it, each running lazygit.
 
+    groups maps path -> "work"|"personal"; it drives the tab chip color and,
+    when `lg-theme <group> <name>` set an override, a per-group lazygit theme
+    (overlaid via LG_CONFIG_FILE) plus that theme's terminal background.
     Returns [(session_id, path), ...] for the tabs it created."""
-    bg = terminal_bg()
-    bg_seq = f"printf '\\\\033]11;%s\\\\007' {shlex.quote(bg)} && " if bg else ""
+    groups = groups or {}
+    global_bg = terminal_bg(LAZYGIT_CONFIG)
     lines = ['tell application "iTerm2"', 'set ids to {}',
              'set w to (create window with default profile)']
     for i, p in enumerate(paths):
+        g = groups.get(p)
+        theme = group_theme(g) if g else None
+        theme_file = os.path.join(LAZYGIT_THEMES, f"{theme}.yml") if theme else None
+        env = ""
+        bg = global_bg
+        if theme_file and os.path.exists(theme_file):
+            env = f"LG_CONFIG_FILE={shlex.quote(LAZYGIT_CONFIG + ',' + theme_file)} "
+            bg = terminal_bg(theme_file) or global_bg
+        bg_seq = f"printf '\\\\033]11;%s\\\\007' {shlex.quote(bg)} && " if bg else ""
+        chip = ""
+        if g:
+            chip = tab_color_seq(WORK_TAB_COLOR if g == "work" else PERSONAL_TAB_COLOR)
         # The printf titles the tab (OSC 1) from inside the command line itself,
         # strictly after the shell's preexec retitle — immune to startup timing.
         # DISABLE_AUTO_TITLE stops later prompts from retitling again.
         name = shlex.quote(os.path.basename(p))
         cmd = (f"export DISABLE_AUTO_TITLE=true; cd {shlex.quote(p)} && "
-               f"printf '\\\\033]1;%s\\\\007' {name} && {bg_seq}lazygit")
+               f"printf '\\\\033]1;%s\\\\007' {name} && {bg_seq}{chip}{env}lazygit")
         if i:
             lines += ['tell w', 'create tab with default profile', 'end tell']
         lines.append(f'tell current session of w to write text "{cmd}"')
@@ -246,16 +272,25 @@ def open_iterm_tabs(paths):
     return list(zip(ids, paths)) if len(ids) == len(paths) else []
 
 
-def terminal_bg():
-    """Background hex the active lazygit theme declares, if any (set by lg-theme)."""
+def terminal_bg(path):
+    """Background hex declared via '# terminal-bg:' in a theme/config file."""
     try:
-        with open(LAZYGIT_CONFIG) as f:
+        with open(path) as f:
             for line in f:
                 if line.startswith("# terminal-bg:"):
                     return line.split(":", 1)[1].strip()
     except OSError:
         pass
     return None
+
+
+def group_theme(group):
+    """Per-group theme override set by `lg-theme work|personal <name>`."""
+    try:
+        with open(os.path.expanduser(f"~/.config/repo-tabs/theme-{group}")) as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
 
 
 def existing_session_ids():
@@ -417,7 +452,9 @@ def main():
 
     if lazy:
         ensure_watcher()
-        save_sessions(open_iterm_tabs(selected))
+        groups = {p: "work" if p in work and mode != "personal" else "personal"
+                  for p in selected}
+        save_sessions(open_iterm_tabs(selected, groups))
         print(f"lazy {mode}: " + ", ".join(os.path.basename(p) for p in selected))
         return
 
