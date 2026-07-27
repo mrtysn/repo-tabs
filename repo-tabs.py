@@ -48,8 +48,6 @@ SESSIONS = os.path.expanduser("~/.config/repo-tabs/sessions.json")
 LAZYGIT_CONFIG = os.path.expanduser(
     "~/Library/Application Support/lazygit/config.yml")
 LAZYGIT_THEMES = os.path.expanduser("~/Library/Application Support/lazygit/themes")
-WORK_TAB_COLOR = "#34d3fb"      # iTerm tab chip per group, lazy mode only
-PERSONAL_TAB_COLOR = "#f92aad"
 DEFAULT_RECT = "{{54, 0}, {2506, 1415}}"
 HEADER = ("# repo-tabs repo list — one path per line.\n"
           "# Paths containing /dev/personal/ count as personal, the rest as work.\n"
@@ -225,20 +223,12 @@ def focus_ui(stdscr, repos):
             return False
 
 
-def tab_color_seq(hexcol):
-    """iTerm OSC 6 escapes (as an AppleScript-quoted printf) for the tab chip."""
-    r, g, b = (int(hexcol[i:i + 2], 16) for i in (1, 3, 5))
-    osc = "".join(f"\\\\033]6;1;bg;{c};brightness;{v}\\\\007"
-                  for c, v in (("red", r), ("green", g), ("blue", b)))
-    return f"printf '{osc}' && "
-
-
 def open_iterm_tabs(paths, groups=None):
     """One iTerm window, one tab per repo named after it, each running lazygit.
 
-    groups maps path -> "work"|"personal"; it drives the tab chip color and,
-    when `lg-theme <group> <name>` set an override, a per-group lazygit theme
-    (overlaid via LG_CONFIG_FILE) plus that theme's terminal background.
+    groups maps path -> "work"|"personal"; when `lg-theme <group> <name>` set
+    an override, the group's lazygit theme is overlaid via LG_CONFIG_FILE and
+    its terminal background applied to the tab.
     Returns [(session_id, path), ...] for the tabs it created."""
     groups = groups or {}
     global_bg = terminal_bg(LAZYGIT_CONFIG)
@@ -254,15 +244,12 @@ def open_iterm_tabs(paths, groups=None):
             env = f"LG_CONFIG_FILE={shlex.quote(LAZYGIT_CONFIG + ',' + theme_file)} "
             bg = terminal_bg(theme_file) or global_bg
         bg_seq = f"printf '\\\\033]11;%s\\\\007' {shlex.quote(bg)} && " if bg else ""
-        chip = ""
-        if g:
-            chip = tab_color_seq(WORK_TAB_COLOR if g == "work" else PERSONAL_TAB_COLOR)
         # The printf titles the tab (OSC 1) from inside the command line itself,
         # strictly after the shell's preexec retitle — immune to startup timing.
         # DISABLE_AUTO_TITLE stops later prompts from retitling again.
         name = shlex.quote(os.path.basename(p))
         cmd = (f"export DISABLE_AUTO_TITLE=true; cd {shlex.quote(p)} && "
-               f"printf '\\\\033]1;%s\\\\007' {name} && {bg_seq}{chip}{env}lazygit")
+               f"printf '\\\\033]1;%s\\\\007' {name} && {bg_seq}{env}lazygit")
         if i:
             lines += ['tell w', 'create tab with default profile', 'end tell']
         lines.append(f'tell current session of w to write text "{cmd}"')
@@ -320,25 +307,57 @@ def save_sessions(pairs):
         json.dump(data, f, indent=1)
 
 
-def close_sessions(target):
-    data = load_sessions()
-    if target in ("work", "personal"):
-        group = {p for p, t in load_config(strict=False) if target in t}
-        victims = {sid for sid, p in data.items() if p in group}
-    elif target == "all":
-        victims = set(data)
-    else:
-        victims = {sid for sid, p in data.items() if os.path.basename(p) == target}
-    if not victims:
-        sys.exit(f"no tracked sessions match {target!r} in {SESSIONS}")
-    live = victims & existing_session_ids()
-    closed = 0
-    # One atomic find-by-id-and-close per osascript run. AppleScript references
-    # are positional, so a close invalidates every other collected reference —
-    # batch-closing them kills unrelated sessions. Never close outside the
-    # id-match branch.
-    for sid in sorted(live):
-        r = subprocess.run(["osascript", "-e", f'''
+def iterm_window_map():
+    """{window_id: {session_id: is_running_lazygit}} for every iTerm window."""
+    out = subprocess.run(["osascript", "-e", '''
+tell application "iTerm2"
+  set acc to ""
+  repeat with w in windows
+    set acc to acc & (id of w as text) & ":"
+    repeat with t in tabs of w
+      repeat with s in sessions of t
+        if name of s ends with "(lazygit)" then
+          set flag to "1"
+        else
+          set flag to "0"
+        end if
+        set acc to acc & (id of s) & "=" & flag & ","
+      end repeat
+    end repeat
+    set acc to acc & "|"
+  end repeat
+  return acc
+end tell'''], capture_output=True, text=True)
+    winmap = {}
+    for chunk in out.stdout.strip().split("|"):
+        if ":" not in chunk:
+            continue
+        win, _, rest = chunk.partition(":")
+        winmap[win.strip()] = {
+            sid: flag == "1"
+            for entry in rest.split(",") if "=" in entry
+            for sid, _, flag in [entry.strip().partition("=")]}
+    return winmap
+
+
+def close_window(win_id):
+    """Atomically close one window, resolved by id in the same script run."""
+    r = subprocess.run(["osascript", "-e", f'''
+tell application "iTerm2"
+  repeat with w in windows
+    if (id of w as text) is "{win_id}" then
+      close w
+      return "closed"
+    end if
+  end repeat
+end tell
+return "missing"'''], capture_output=True, text=True)
+    return r.stdout.strip() == "closed"
+
+
+def close_session(sid):
+    """Atomically close one session, resolved by id in the same script run."""
+    r = subprocess.run(["osascript", "-e", f'''
 tell application "iTerm2"
   repeat with w in windows
     repeat with t in tabs of w
@@ -352,12 +371,45 @@ tell application "iTerm2"
   end repeat
 end tell
 return "missing"'''], capture_output=True, text=True)
-        closed += r.stdout.strip() == "closed"
+    return r.stdout.strip() == "closed"
+
+
+def close_sessions(target):
+    data = load_sessions()
+    if target in ("work", "personal"):
+        group = {p for p, t in load_config(strict=False) if target in t}
+        victims = {sid for sid, p in data.items() if p in group}
+    elif target == "all":
+        victims = set(data)
+    else:
+        victims = {sid for sid, p in data.items() if os.path.basename(p) == target}
+    if not victims:
+        sys.exit(f"no tracked sessions match {target!r} in {SESSIONS}")
+    # Close a whole window in one action only when it is provably ours: every
+    # session in it is a victim AND every session is running lazygit. Anything
+    # less falls back to per-session closes. All closes resolve their target
+    # by id inside a single osascript run (AppleScript references are
+    # positional; a close invalidates every other collected reference).
+    winmap = iterm_window_map()
+    all_live = {sid for sess in winmap.values() for sid in sess}
+    closed_windows = closed_tabs = 0
+    leftovers = set()
+    for win, sess in winmap.items():
+        v = set(sess) & victims
+        if not v:
+            continue
+        if set(sess) == v and all(sess.values()):
+            closed_windows += close_window(win)
+        else:
+            leftovers |= v
+    for sid in sorted(leftovers):
+        closed_tabs += close_session(sid)
     for sid in victims:
         data.pop(sid, None)
     with open(SESSIONS, "w") as f:
         json.dump(data, f, indent=1)
-    print(f"closed {closed} session(s), {len(victims) - closed} already gone")
+    print(f"closed {closed_windows} window(s) + {closed_tabs} tab(s), "
+          f"{len(victims - all_live)} already gone")
 
 
 def active_tab_name():
