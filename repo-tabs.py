@@ -308,7 +308,7 @@ def save_sessions(pairs):
 
 
 def iterm_window_map():
-    """{window_id: {session_id: is_running_lazygit}} for every iTerm window."""
+    """{window_id: {session_id, ...}} for every iTerm window."""
     out = subprocess.run(["osascript", "-e", '''
 tell application "iTerm2"
   set acc to ""
@@ -316,12 +316,7 @@ tell application "iTerm2"
     set acc to acc & (id of w as text) & ":"
     repeat with t in tabs of w
       repeat with s in sessions of t
-        if name of s ends with "(lazygit)" then
-          set flag to "1"
-        else
-          set flag to "0"
-        end if
-        set acc to acc & (id of s) & "=" & flag & ","
+        set acc to acc & (id of s) & ","
       end repeat
     end repeat
     set acc to acc & "|"
@@ -333,10 +328,7 @@ end tell'''], capture_output=True, text=True)
         if ":" not in chunk:
             continue
         win, _, rest = chunk.partition(":")
-        winmap[win.strip()] = {
-            sid: flag == "1"
-            for entry in rest.split(",") if "=" in entry
-            for sid, _, flag in [entry.strip().partition("=")]}
+        winmap[win.strip()] = {s.strip() for s in rest.split(",") if s.strip()}
     return winmap
 
 
@@ -385,20 +377,23 @@ def close_sessions(target):
         victims = {sid for sid, p in data.items() if os.path.basename(p) == target}
     if not victims:
         sys.exit(f"no tracked sessions match {target!r} in {SESSIONS}")
-    # Close a whole window in one action only when it is provably ours: every
-    # session in it is a victim AND every session is running lazygit. Anything
-    # less falls back to per-session closes. All closes resolve their target
-    # by id inside a single osascript run (AppleScript references are
-    # positional; a close invalidates every other collected reference).
+    # Close a whole window in one action when it is provably ours: every
+    # session in it is a tracked victim (ownership by recorded id — we created
+    # the window). Job names are NOT checked: lazygit constantly spawns git
+    # children, so name-based checks flap and degrade closes to per-tab
+    # prompts. Partially-owned windows fall back to per-session closes. All
+    # closes resolve their target by id inside a single osascript run
+    # (AppleScript references are positional; a close invalidates every other
+    # collected reference).
     winmap = iterm_window_map()
     all_live = {sid for sess in winmap.values() for sid in sess}
     closed_windows = closed_tabs = 0
     leftovers = set()
     for win, sess in winmap.items():
-        v = set(sess) & victims
+        v = sess & victims
         if not v:
             continue
-        if set(sess) == v and all(sess.values()):
+        if sess == v:
             closed_windows += close_window(win)
         else:
             leftovers |= v
