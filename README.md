@@ -1,22 +1,22 @@
-# st-tabs
+# repo-tabs
 
-Sourcetree ordered tab groups. Switches Sourcetree's open tab set between `work`, `personal`, and `all` by rewriting `~/Library/Application Support/SourceTree/openWindowList` (the file Sourcetree reads its open tabs from on launch), quitting Sourcetree first if it is running and relaunching it after. Tabs are alphabetical within each group.
+Switches Sourcetree's open tab set between `work`, `personal`, and `all` by rewriting `~/Library/Application Support/SourceTree/openWindowList` (the file Sourcetree reads its open tabs from on launch), quitting Sourcetree first if it is running and relaunching it after. Tabs are alphabetical within each group.
 
 ## Usage
 
 ```
-st-tabs work        open only active work repos
-st-tabs personal    open only active personal repos
-st-tabs all         open both groups (work first)
-st-tabs focus       interactive selector: active status, groups, new repos
-st-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
+repo-tabs work        open only active work repos
+repo-tabs personal    open only active personal repos
+repo-tabs all         open both groups (work first)
+repo-tabs focus       interactive selector: active status, groups, new repos
+repo-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
 ```
 
 `lazy` takes the same `work|personal|all` groups but opens an iTerm2 window with one tab per repo running [lazygit](https://github.com/jesseduffield/lazygit), instead of touching Sourcetree.
 
 ## Configuration
 
-The repo list lives in `~/.config/st-tabs/repos.txt` (one path per line, `#` comments), seeded from the currently open tabs on first run. A path containing `/dev/personal/` is classified as personal, everything else as work. Append explicit tags in brackets to override or multi-tag:
+The repo list lives in `~/.config/repo-tabs/repos.txt` (one path per line, `#` comments), seeded from the currently open tabs on first run. A path containing `/dev/personal/` is classified as personal, everything else as work. Append explicit tags in brackets to override or multi-tag:
 
 ```
 /path/to/repo  [work personal]
@@ -26,7 +26,7 @@ A repo tagged `inactive` stays in the list but is never opened — the mechanism
 
 ## Focus mode
 
-`st-tabs focus` opens a checklist over the repo list:
+`repo-tabs focus` opens a checklist over the repo list:
 
 | Key | Action |
 |---|---|

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-# DESC: Sourcetree ordered tab groups
-"""st-tabs — switch Sourcetree's open tab set between work / personal / all.
+# DESC: Repo tab groups for Sourcetree and lazygit
+"""repo-tabs — switch Sourcetree's open tab set between work / personal / all.
 
 Usage:
-    st-tabs work        open only active work repos
-    st-tabs personal    open only active personal repos
-    st-tabs all         open both groups (work first)
-    st-tabs focus       interactive selector: active status, groups, new repos
-    st-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
+    repo-tabs work        open only active work repos
+    repo-tabs personal    open only active personal repos
+    repo-tabs all         open both groups (work first)
+    repo-tabs focus       interactive selector: active status, groups, new repos
+    repo-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
 
 Rewrites ~/Library/Application Support/SourceTree/openWindowList (the file
 Sourcetree reads its open tabs from on launch), quitting Sourcetree first if
 it is running and relaunching it after. Tabs are alphabetical within group.
 
-Repo list lives in ~/.config/st-tabs/repos.txt (one path per line, # comments;
+Repo list lives in ~/.config/repo-tabs/repos.txt (one path per line, # comments;
 seeded from the current open tabs on first run). A path containing
 /dev/personal/ is classified as personal, everything else as work. Append
 explicit tags in brackets to override or multi-tag:
@@ -36,9 +36,9 @@ from plistlib import UID, load, dump, FMT_BINARY
 
 WINDOW_LIST = os.path.expanduser(
     "~/Library/Application Support/SourceTree/openWindowList")
-CONFIG = os.path.expanduser("~/.config/st-tabs/repos.txt")
+CONFIG = os.path.expanduser("~/.config/repo-tabs/repos.txt")
 DEFAULT_RECT = "{{54, 0}, {2506, 1415}}"
-HEADER = ("# st-tabs repo list — one path per line.\n"
+HEADER = ("# repo-tabs repo list — one path per line.\n"
           "# Paths containing /dev/personal/ count as personal, the rest as work.\n"
           "# Tags in brackets override: /path/to/repo  [work personal inactive]\n"
           "# 'inactive' repos stay listed but are never opened.\n")
@@ -252,7 +252,7 @@ def main():
         args = args[1:]
     mode = args[0] if len(args) == 1 else None
     if mode not in ("work", "personal", "all", "focus") or (lazy and mode == "focus"):
-        sys.exit("usage: st-tabs [lazy] work|personal|all  |  st-tabs focus")
+        sys.exit("usage: repo-tabs [lazy] work|personal|all  |  repo-tabs focus")
 
     if mode == "focus":
         repos = load_config(strict=False)
