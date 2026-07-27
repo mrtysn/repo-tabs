@@ -213,17 +213,19 @@ def focus_ui(stdscr, repos):
 
 
 def open_iterm_tabs(paths):
-    """One iTerm window, one tab per repo, each running lazygit."""
+    """One iTerm window, one tab per repo named after it, each running lazygit."""
     lines = ['tell application "iTerm2"',
              'set w to (create window with default profile)']
     for i, p in enumerate(paths):
-        cmd = f"cd {shlex.quote(p)} && lazygit"
-        if i == 0:
-            lines.append(f'tell current session of w to write text "{cmd}"')
-        else:
-            lines += ['tell w', 'create tab with default profile',
-                      f'tell current session of w to write text "{cmd}"',
-                      'end tell']
+        # DISABLE_AUTO_TITLE stops the shell retitling the tab on each prompt
+        cmd = f"export DISABLE_AUTO_TITLE=true; cd {shlex.quote(p)} && lazygit"
+        if i:
+            lines += ['tell w', 'create tab with default profile', 'end tell']
+        lines.append(f'set s{i} to current session of w')
+        lines.append(f'tell s{i} to write text "{cmd}"')
+    lines.append('delay 0.5')  # let the shell's own title write land first, then override
+    for i, p in enumerate(paths):
+        lines.append(f'tell s{i} to set name to "{os.path.basename(p)}"')
     lines += ['activate', 'end tell']
     subprocess.run(["osascript", "-e", "\n".join(lines)], check=True)
 
