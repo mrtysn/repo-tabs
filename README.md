@@ -14,6 +14,8 @@ repo-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
 
 `lazy` takes the same `work|personal|all` groups but opens an iTerm2 window with one tab per repo running [lazygit](https://github.com/jesseduffield/lazygit), instead of touching Sourcetree.
 
+`lazy` records the iTerm session id of every tab it opens in `~/.config/repo-tabs/sessions.json`; `close` kills exactly those sessions on demand — `repo-tabs close` (everything tracked), `close work` / `close personal` (by group), or `close <repo-name>` (one tab). Tabs you closed by hand are pruned from the file automatically.
+
 `watch` polls iTerm2 for the focused tab and runs `git fetch` in the matching repo when its tab gains focus, at most once per cooldown window (`repo-tabs watch 30` = 30 minutes, default 15; last-fetch time is read from `.git/FETCH_HEAD`). `lazy` starts a watcher automatically if none is running; pair it with `git.autoFetch: false` in lazygit's config so fetching happens only on focus. Stop it with `pkill -f "repo-tabs.* watch"`.
 
 ## Configuration

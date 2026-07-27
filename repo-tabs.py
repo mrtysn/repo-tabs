@@ -10,6 +10,8 @@ Usage:
     repo-tabs lazy MODE   open the MODE group as iTerm tabs running lazygit
     repo-tabs watch [MIN] fetch repos when their tab gains focus, cooldown MIN
                           minutes (default 15); auto-started by lazy
+    repo-tabs close [SEL] close tabs opened by lazy: work|personal|all (default)
+                          or a repo name
 
 Rewrites ~/Library/Application Support/SourceTree/openWindowList (the file
 Sourcetree reads its open tabs from on launch), quitting Sourcetree first if
@@ -28,6 +30,7 @@ registers a new repo path.
 """
 
 import curses
+import json
 import os
 import shlex
 import shutil
@@ -39,6 +42,7 @@ from plistlib import UID, load, dump, FMT_BINARY
 WINDOW_LIST = os.path.expanduser(
     "~/Library/Application Support/SourceTree/openWindowList")
 CONFIG = os.path.expanduser("~/.config/repo-tabs/repos.txt")
+SESSIONS = os.path.expanduser("~/.config/repo-tabs/sessions.json")
 DEFAULT_RECT = "{{54, 0}, {2506, 1415}}"
 HEADER = ("# repo-tabs repo list — one path per line.\n"
           "# Paths containing /dev/personal/ count as personal, the rest as work.\n"
@@ -215,8 +219,10 @@ def focus_ui(stdscr, repos):
 
 
 def open_iterm_tabs(paths):
-    """One iTerm window, one tab per repo named after it, each running lazygit."""
-    lines = ['tell application "iTerm2"',
+    """One iTerm window, one tab per repo named after it, each running lazygit.
+
+    Returns [(session_id, path), ...] for the tabs it created."""
+    lines = ['tell application "iTerm2"', 'set ids to {}',
              'set w to (create window with default profile)']
     for i, p in enumerate(paths):
         # The printf titles the tab (OSC 1) from inside the command line itself,
@@ -228,8 +234,73 @@ def open_iterm_tabs(paths):
         if i:
             lines += ['tell w', 'create tab with default profile', 'end tell']
         lines.append(f'tell current session of w to write text "{cmd}"')
-    lines += ['activate', 'end tell']
-    subprocess.run(["osascript", "-e", "\n".join(lines)], check=True)
+        lines.append('set end of ids to id of current session of w')
+    lines += ['activate', 'end tell', 'return ids']
+    out = subprocess.run(["osascript", "-e", "\n".join(lines)],
+                         check=True, capture_output=True, text=True)
+    ids = [t.strip() for t in out.stdout.strip().split(",") if t.strip()]
+    return list(zip(ids, paths)) if len(ids) == len(paths) else []
+
+
+def existing_session_ids():
+    out = subprocess.run(
+        ["osascript", "-e",
+         'tell application "iTerm2" to id of every session of every tab of every window'],
+        capture_output=True, text=True)
+    return {t.strip() for t in out.stdout.strip().split(",") if t.strip()}
+
+
+def load_sessions():
+    try:
+        with open(SESSIONS) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_sessions(pairs):
+    data = load_sessions()
+    live = existing_session_ids()
+    data = {sid: p for sid, p in data.items() if sid in live}  # drop stale ids
+    data.update(dict(pairs))
+    with open(SESSIONS, "w") as f:
+        json.dump(data, f, indent=1)
+
+
+def close_sessions(target):
+    data = load_sessions()
+    if target in ("work", "personal"):
+        group = {p for p, t in load_config(strict=False) if target in t}
+        victims = {sid for sid, p in data.items() if p in group}
+    elif target == "all":
+        victims = set(data)
+    else:
+        victims = {sid for sid, p in data.items() if os.path.basename(p) == target}
+    if not victims:
+        sys.exit(f"no tracked sessions match {target!r} in {SESSIONS}")
+    live = victims & existing_session_ids()
+    if live:
+        id_list = ", ".join(f'"{s}"' for s in sorted(live))
+        # collect matches first, close after — closing mid-iteration breaks AppleScript
+        subprocess.run(["osascript", "-e", f'''
+tell application "iTerm2"
+  set victims to {{}}
+  repeat with w in windows
+    repeat with t in tabs of w
+      repeat with s in sessions of t
+        if {{{id_list}}} contains (id of s) then set end of victims to s
+      end repeat
+    end repeat
+  end repeat
+  repeat with s in victims
+    close s
+  end repeat
+end tell'''], check=True, capture_output=True)
+    for sid in victims:
+        data.pop(sid, None)
+    with open(SESSIONS, "w") as f:
+        json.dump(data, f, indent=1)
+    print(f"closed {len(live)} session(s), {len(victims) - len(live)} already gone")
 
 
 def active_tab_name():
@@ -295,12 +366,15 @@ def main():
     if args and args[0] == "watch":
         watch(float(args[1]) if len(args) > 1 else 15)
         return
+    if args and args[0] == "close":
+        close_sessions(args[1] if len(args) > 1 else "all")
+        return
     lazy = bool(args) and args[0] == "lazy"
     if lazy:
         args = args[1:]
     mode = args[0] if len(args) == 1 else None
     if mode not in ("work", "personal", "all", "focus") or (lazy and mode == "focus"):
-        sys.exit("usage: repo-tabs [lazy] work|personal|all  |  repo-tabs focus|watch")
+        sys.exit("usage: repo-tabs [lazy] work|personal|all  |  repo-tabs focus|watch|close")
 
     if mode == "focus":
         repos = load_config(strict=False)
@@ -323,7 +397,7 @@ def main():
 
     if lazy:
         ensure_watcher()
-        open_iterm_tabs(selected)
+        save_sessions(open_iterm_tabs(selected))
         print(f"lazy {mode}: " + ", ".join(os.path.basename(p) for p in selected))
         return
 
