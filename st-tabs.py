@@ -210,12 +210,12 @@ def focus_ui(stdscr, repos):
 
 
 def sourcetree_running():
-    return subprocess.run(["pgrep", "-x", "SourceTree"],
+    return subprocess.run(["pgrep", "-x", "Sourcetree"],
                           capture_output=True).returncode == 0
 
 
 def quit_sourcetree():
-    subprocess.run(["osascript", "-e", 'tell application "SourceTree" to quit'],
+    subprocess.run(["osascript", "-e", 'tell application "Sourcetree" to quit'],
                    check=True)
     for _ in range(30):
         if not sourcetree_running():
