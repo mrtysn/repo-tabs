@@ -153,6 +153,7 @@ def prompt(stdscr, label):
 
 def focus_ui(stdscr, repos):
     """Checklist over repos (mutated in place). Returns True to save."""
+    curses.use_default_colors()  # wrapper's start_color() would otherwise paint the bg ANSI black
     curses.curs_set(0)
     cur = top = 0
     msg = ""
