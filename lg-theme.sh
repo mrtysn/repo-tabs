@@ -58,8 +58,12 @@ fi
 
 tmp=$(mktemp)
 strip_block > "$tmp"
+# The base config must keep `gui:` as its LAST top-level section: the theme
+# file's own `gui:` header is dropped and its (already-indented) content is
+# merged under it, so the file has exactly one gui: mapping.
+grep -q '^gui:' "$tmp" || echo "gui:" >> "$tmp"
 if [[ "$name" != default ]]; then
-  { echo "$MARK"; echo "# theme: $name"; cat "$THEMES/$name.yml"; } >> "$tmp"
+  { echo "$MARK"; echo "# theme: $name"; grep -v '^gui:$' "$THEMES/$name.yml"; } >> "$tmp"
 fi
 mv "$tmp" "$CONF"
 echo "theme: $name — relaunch lazygit to see it"
