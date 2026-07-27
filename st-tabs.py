@@ -262,7 +262,8 @@ def main():
         dump(build_plist(selected, rect), f, fmt=FMT_BINARY)
 
     for _ in range(10):  # right after quit, LaunchServices may still point at the dying process
-        if subprocess.run(["open", "-a", "Sourcetree"]).returncode == 0:
+        if subprocess.run(["open", "-a", "Sourcetree"],
+                          capture_output=True).returncode == 0:
             break
         time.sleep(0.5)
     else:
