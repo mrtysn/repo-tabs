@@ -261,7 +261,12 @@ def main():
     with open(WINDOW_LIST, "wb") as f:
         dump(build_plist(selected, rect), f, fmt=FMT_BINARY)
 
-    subprocess.run(["open", "-a", "SourceTree"], check=True)
+    for _ in range(10):  # right after quit, LaunchServices may still point at the dying process
+        if subprocess.run(["open", "-a", "Sourcetree"]).returncode == 0:
+            break
+        time.sleep(0.5)
+    else:
+        sys.exit("could not relaunch Sourcetree — tabs are written, open it manually")
     print(f"{mode}: " + ", ".join(os.path.basename(p) for p in selected))
 
 
